@@ -4,6 +4,8 @@ let computeShader;
 let displayShader;
 let instance;
 
+let controlPoints;
+
 const numLines = 3;
 const particlesPerLine = 150;
 const numParticles = numLines * particlesPerLine;
@@ -31,6 +33,32 @@ async function setup() {
 
     particles = createStorage(posData);
     meta = createStorage(buildMeta());
+
+    controlPoints = createStorage([
+        // TOP
+        {
+            p0: createVector(-200, -150, 0),
+            p1: createVector(-80, -230, 0),
+            p2: createVector(80, -70, 0),
+            p3: createVector(200, -150, 0)
+        },
+
+        // MIDDLE
+        {
+            p0: createVector(-200, 0, 0),
+            p1: createVector(-100, 100, 0),
+            p2: createVector(100, -100, 0),
+            p3: createVector(200, 0, 0)
+        },
+
+        // BOTTOM
+        {
+            p0: createVector(-200, 150, 0),
+            p1: createVector(-100, 70, 0),
+            p2: createVector(100, 230, 0),
+            p3: createVector(200, 150, 0)
+        }
+    ]);
 
     computeShader = buildComputeShader(simulate);
     displayShader = buildMaterialShader(display);
@@ -60,81 +88,46 @@ function drawParticle() {
     sphere(2);
 }
 
+function bezierPointGPU(p0, p1, p2, p3, t) {
+
+    let u = 1.0 - t;
+
+    return p0 * (u * u * u) +
+        p1 * (3.0 * u * u * t) +
+        p2 * (3.0 * u * t * t) +
+        p3 * (t * t * t);
+}
+
 // GPU step: every frame, for every particle, recompute where it should be
 // (base position on its line + a per-style noise offset), then ease the
 // GPU-owned position toward that target.
 function simulate() {
+
     let posData = uniformStorage(particles);
     let metaData = uniformStorage(meta);
+    let cpData = uniformStorage(controlPoints);
+
     let idx = index.x;
 
     let sid = metaData[idx].strokeId;
     let t = metaData[idx].t;
-    let seed = metaData[idx].seed;
 
-    let target = vec3(0.0, 0.0, 0.0);
+    // 取得 control points
+    let p0 = cpData[sid].p0;
+    let p1 = cpData[sid].p1;
+    let p2 = cpData[sid].p2;
+    let p3 = cpData[sid].p3;
 
-    // ==========================================
-    // TOP — smooth hand-drawn line
-    // ==========================================
-    if (sid < 0.5) {
+    // Cubic Bezier
+    let u = 1.0 - t;
 
-        let x = -LINE_LEN / 2.0 + t * LINE_LEN;
+    let base =
+        p0 * (u * u * u) +
+        p1 * (3.0 * u * u * t) +
+        p2 * (3.0 * u * t * t) +
+        p3 * (t * t * t);
 
-        // low frequency → smooth large movement
-        let n = noise(t * 3.0, seed) - 0.5;
-
-        let y = -150.0 + n * 50.0;
-
-        target = vec3(x, y, 0.0);
-
-
-        // ==========================================
-        // MIDDLE — crayon / grain
-        // ==========================================
-    } else if (sid < 1.5) {
-
-        let x = -LINE_LEN / 2.0 + t * LINE_LEN;
-
-        // high frequency → irregular particles
-        let nx = noise(t * 30.0, seed) - 0.5;
-        let ny = noise(t * 30.0, seed + 100.0) - 0.5;
-
-        x += nx * 15.0;
-        let y = ny * 25.0;
-
-        target = vec3(x, y, 0.0);
-
-
-        // ==========================================
-        // BOTTOM — rough / hairy
-        // ==========================================
-    } else {
-
-        let x = -LINE_LEN / 2.0 + t * LINE_LEN;
-
-        // large slow shape
-        let bigNoise =
-            noise(t * 20.0, seed) - 0.5;
-
-        // small fast irregularity
-        let smallNoise =
-            noise(t * 25.0, seed + 200.0) - 0.5;
-
-        let y =
-            150.0 +
-            bigNoise * 5.0 +
-            smallNoise * 2.0;
-
-        x += smallNoise * 15.0;
-
-        target = vec3(x, y, 0.0);
-    }
-
-
-    // ==========================================
-    // MOVE PARTICLE
-    // ==========================================
+    let target = base;
 
     let pos = posData[idx].position;
 
