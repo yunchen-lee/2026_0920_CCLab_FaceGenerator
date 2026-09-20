@@ -102,7 +102,6 @@ function bezierPointGPU(p0, p1, p2, p3, t) {
 // (base position on its line + a per-style noise offset), then ease the
 // GPU-owned position toward that target.
 function simulate() {
-
     let posData = uniformStorage(particles);
     let metaData = uniformStorage(meta);
     let cpData = uniformStorage(controlPoints);
@@ -111,14 +110,17 @@ function simulate() {
 
     let sid = metaData[idx].strokeId;
     let t = metaData[idx].t;
+    let seed = metaData[idx].seed;
 
-    // 取得 control points
+    // --------------------------------
+    // 1. Get Bezier control points
+    // --------------------------------
+
     let p0 = cpData[sid].p0;
     let p1 = cpData[sid].p1;
     let p2 = cpData[sid].p2;
     let p3 = cpData[sid].p3;
 
-    // Cubic Bezier
     let u = 1.0 - t;
 
     let base =
@@ -127,7 +129,60 @@ function simulate() {
         p2 * (3.0 * u * t * t) +
         p3 * (t * t * t);
 
+
+    // --------------------------------
+    // 2. Add different stroke styles
+    // --------------------------------
+
     let target = base;
+
+    // TOP — soft / smooth
+    if (sid < 0.5) {
+
+        let n = noise(t * 3.0, seed) - 0.5;
+
+        target = vec3(
+            base.x,
+            base.y + n * 15.0,
+            base.z
+        );
+
+
+        // MIDDLE — crayon / grain
+    } else if (sid < 1.5) {
+
+        let nx = noise(t * 30.0, seed) - 0.5;
+        let ny = noise(t * 30.0, seed + 100.0) - 0.5;
+
+        target = vec3(
+            base.x + nx * 12.0,
+            base.y + ny * 25.0,
+            base.z
+        );
+
+
+        // BOTTOM — rough / scratchy
+    } else {
+
+        let bigNoise =
+            noise(t * 4.0, seed) - 0.5;
+
+        let smallNoise =
+            noise(t * 35.0, seed + 200.0) - 0.5;
+
+        target = vec3(
+            base.x + smallNoise * 10.0,
+            base.y +
+            bigNoise * 25.0 +
+            smallNoise * 12.0,
+            base.z
+        );
+    }
+
+
+    // --------------------------------
+    // 3. Move toward target
+    // --------------------------------
 
     let pos = posData[idx].position;
 
